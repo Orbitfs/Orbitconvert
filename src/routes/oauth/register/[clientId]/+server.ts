@@ -100,7 +100,7 @@ export async function DELETE({ request, params }) {
 	if (result.error) return result.error;
 	const revokedAt = new Date().toISOString();
 	await result.db.from('mcp_oauth_tokens').update({ revoked_at: revokedAt }).eq('client_id', params.clientId).is('revoked_at', null);
-	await result.db.from('mcp_clients').update({ status: 'disabled', last_seen_at: revokedAt }).eq('id', params.clientId);
+	await result.db.from('mcp_clients').update({ status: 'revoked', last_seen_at: revokedAt }).eq('id', params.clientId);
 	const { error } = await result.db.from('mcp_oauth_clients').delete().eq('client_id', params.clientId);
 	if (error) throw error;
 	return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } });
