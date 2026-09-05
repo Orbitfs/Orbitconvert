@@ -12,6 +12,7 @@ export function GET() {
 		token_endpoint_auth_methods_supported: ['none'],
 		code_challenge_methods_supported: ['S256'],
 		scopes_supported: [...OAUTH_SCOPES],
-		resource_parameter_supported: true
+		resource_parameter_supported: true,
+		authorization_response_iss_parameter_supported: true
 	});
 }
