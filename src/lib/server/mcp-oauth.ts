@@ -40,7 +40,13 @@ export async function validateAuthorizationRequest(input: {
 	const client = await getOAuthClient(input.clientId);
 	const redirects = Array.isArray(client.redirect_uris) ? client.redirect_uris.map(String) : [];
 	if (!redirects.includes(input.redirectUri)) throw Object.assign(new Error('Redirect URI is not registered'), { status: 400 });
-	return { client, scope: normalizeScope(input.scope), resource };
+	const scope = normalizeScope(input.scope);
+	const registeredScopes = new Set(String(client.scope || 'orbitfs:read').split(/\s+/).filter(Boolean));
+	const requestedScopes = scope.split(/\s+/).filter(Boolean);
+	if (requestedScopes.some((item) => !registeredScopes.has(item))) {
+		throw Object.assign(new Error('Requested OAuth scope is not registered for this client'), { status: 400, code: 'OAUTH_INVALID_SCOPE' });
+	}
+	return { client, scope, resource };
 }
 
 export async function issueAuthorizationCode(input: {
@@ -111,7 +117,6 @@ export async function exchangeRefreshToken(input: { refreshToken: string; client
 	await db.from('mcp_oauth_tokens').update({ revoked_at: new Date().toISOString() }).eq('access_token_hash', row.access_token_hash);
 	return storeTokens(row.client_id, row.user_id, row.scope, row.resource);
 }
-
 
 export async function authenticateMcpAccessToken(request: Request) {
 	const header = request.headers.get('authorization') || '';
