@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 import { authenticateOrbitCredentials } from '$lib/server/auth';
-import { issueAuthorizationCode, validateAuthorizationRequest } from '$lib/server/mcp-oauth';
+import { issueAuthorizationCode, OAUTH_ISSUER, validateAuthorizationRequest } from '$lib/server/mcp-oauth';
 
 const esc = (value:string) => value.replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] || c));
 
@@ -58,5 +58,5 @@ export async function POST({ request }) {
 	if(user.must_change_pin) return new Response(renderLogin(input,validated.scope,'Change your temporary password/PIN in the OrbitFS Panel before connecting ChatGPT.'),{status:403,headers:{'content-type':'text/html; charset=utf-8','cache-control':'no-store'}});
 	const code=await issueAuthorizationCode({clientId:input.clientId,userId:user.id,redirectUri:input.redirectUri,
 		scope:validated.scope,resource:validated.resource,codeChallenge:input.codeChallenge});
-	throw redirect(303,appendRedirect(input.redirectUri,{code,state:input.state}));
+	throw redirect(303,appendRedirect(input.redirectUri,{code,state:input.state,iss:OAUTH_ISSUER}));
 }
