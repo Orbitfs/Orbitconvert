@@ -4,6 +4,8 @@ import { getSupabaseAdmin } from '$lib/server/supabase';
 
 const COOKIE = 'orbitfs_session';
 const SESSION_DAYS = 30;
+const LAST_SEEN_WRITE_INTERVAL_MS = 60_000;
+const lastSeenWrites = new Map<string, number>();
 
 export type OrbitUser = {
 	id: string;
@@ -73,27 +75,39 @@ export async function createSession(
 	return token;
 }
 
+function nestedUser(value: any) {
+	if (Array.isArray(value)) return value[0] ?? null;
+	return value ?? null;
+}
+
 export async function getSessionUser(cookies: Cookies): Promise<OrbitUser | null> {
 	const token = cookies.get(COOKIE);
 	if (!token) return null;
 	const supabase = getSupabaseAdmin();
-	const { data: session } = await supabase
+	const tokenHash = hashToken(token);
+	const { data: session, error: sessionError } = await supabase
 		.from('orbitfs_sessions')
-		.select('id,user_id,expires_at')
-		.eq('token_hash', hashToken(token))
+		.select('id,user_id,expires_at,orbitfs_users!orbitfs_sessions_user_id_fkey(id,username,display_name,email,role,status,avatar_url,permissions,must_change_pin,ban_reason,last_login_at,login_count)')
+		.eq('token_hash', tokenHash)
 		.maybeSingle();
+	if (sessionError) throw sessionError;
 	if (!session || new Date(session.expires_at).getTime() <= Date.now()) {
 		cookies.delete(COOKIE, { path: '/' });
 		return null;
 	}
-	const { data: user } = await supabase
-		.from('orbitfs_users')
-		.select('id,username,display_name,email,role,status,avatar_url,permissions,must_change_pin,ban_reason,last_login_at,login_count')
-		.eq('id', session.user_id)
-		.maybeSingle();
+	const user = nestedUser((session as any).orbitfs_users);
 	if (!user || user.status !== 'active') return null;
-	void supabase.from('orbitfs_sessions').update({ last_seen_at: new Date().toISOString() }).eq('id', session.id);
-	void supabase.from('orbitfs_users').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id);
+
+	const now = Date.now();
+	const lastWrite = lastSeenWrites.get(tokenHash) || 0;
+	if (now - lastWrite >= LAST_SEEN_WRITE_INTERVAL_MS) {
+		lastSeenWrites.set(tokenHash, now);
+		const seenAt = new Date(now).toISOString();
+		void Promise.all([
+			supabase.from('orbitfs_sessions').update({ last_seen_at: seenAt }).eq('id', session.id),
+			supabase.from('orbitfs_users').update({ last_seen_at: seenAt }).eq('id', user.id)
+		]).catch(() => undefined);
+	}
 	return user as OrbitUser;
 }
 
@@ -113,7 +127,9 @@ export async function destroySession(cookies: Cookies) {
 	const token = cookies.get(COOKIE);
 	if (token) {
 		const supabase = getSupabaseAdmin();
-		await supabase.from('orbitfs_sessions').delete().eq('token_hash', hashToken(token));
+		const tokenHash = hashToken(token);
+		lastSeenWrites.delete(tokenHash);
+		await supabase.from('orbitfs_sessions').delete().eq('token_hash', tokenHash);
 	}
 	cookies.delete(COOKIE, { path: '/' });
 }
