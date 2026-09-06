@@ -71,44 +71,54 @@ const nowIso = () => new Date().toISOString();
 const refreshMs = () => Math.max(60_000, Number(env.ORBITFS_LICENSE_REFRESH_MINUTES || 180) * 60_000);
 const signalMs = () => Math.max(60_000, Number(env.ORBITFS_LICENSE_SIGNAL_MINUTES || 1) * 60_000);
 const keyHint = (value: string) => value.length > 4 ? `****${value.slice(-4)}` : '****';
-let cachedProviderPublicKey = '';
+const cachedProviderPublicKeys = new Map<string, string>();
 async function entitlementPublicKey(providerBase: string) {
 	const configured = String(env.ORBITFS_ENTITLEMENT_PUBLIC_KEY || '').replace(/\\n/g, '\n').trim();
 	if (configured) return configured;
-	if (cachedProviderPublicKey) return cachedProviderPublicKey;
+	const cached = cachedProviderPublicKeys.get(providerBase);
+	if (cached) return cached;
 	try {
 		const response = await fetch(`${providerBase}/public-key`, { signal: AbortSignal.timeout(Number(env.ORBITFS_LICENSE_TIMEOUT_MS || 8000)) });
 		const key = (await response.text()).trim();
 		if (response.ok && key.includes('BEGIN PUBLIC KEY')) {
-			cachedProviderPublicKey = key;
+			cachedProviderPublicKeys.set(providerBase, key);
 			return key;
 		}
 	} catch { /* fall back below */ }
 	return PUBLIC_KEY;
 }
 
-function normalizeApprovedProviderBase(value: string) {
+function isPrivateProviderHost(hostname: string) {
+	const host = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+	if (!host || host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local')) return true;
+	if (host === '::1' || host === '::' || host === '0.0.0.0') return true;
+	if (/^(127|10)\./.test(host) || /^169\.254\./.test(host) || /^192\.168\./.test(host)) return true;
+	const private172 = /^172\.(\d{1,3})\./.exec(host);
+	if (private172 && Number(private172[1]) >= 16 && Number(private172[1]) <= 31) return true;
+	if (host.includes(':') && (/^(fc|fd)/.test(host) || /^fe80:/.test(host))) return true;
+	return false;
+}
+
+function normalizeProviderBase(value: string) {
 	try {
 		const parsed = new URL(String(value || '').trim());
-		if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash) throw new Error();
-		const normalized = `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, '')}`;
-		if (!(ALLOWED_LICENSE_API_BASES as readonly string[]).includes(normalized)) throw new Error();
-		return normalized;
+		if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.search || parsed.hash || isPrivateProviderHost(parsed.hostname)) throw new Error();
+		return `${parsed.protocol}//${parsed.host}${parsed.pathname.replace(/\/$/, '')}`;
 	} catch {
-		throw Object.assign(new Error('Licence API URL is not the approved OrbitFS licence endpoint'), { code: 'LICENSE_PROVIDER_NOT_ALLOWED', status: 400 });
+		throw Object.assign(new Error('Licence API must be a public HTTPS URL with no credentials, query string, or fragment'), { code: 'LICENSE_PROVIDER_INVALID', status: 400 });
 	}
 }
 
 function environmentProviderBase() {
 	const configured = String(env.ORBITFS_LICENSE_API_URL || env.ORBITFS_LICENSE_URL || '').trim();
 	if (!configured) return DEFAULT_PROVIDER;
-	try { return normalizeApprovedProviderBase(configured); } catch { return DEFAULT_PROVIDER; }
+	try { return normalizeProviderBase(configured); } catch { return DEFAULT_PROVIDER; }
 }
 
 function providerBaseFromRow(row: LicenseRow | null) {
 	const metadata = { ...(row?.metadata || {}) } as Record<string, any>;
 	if (typeof metadata.providerBase === 'string' && metadata.providerBase) {
-		try { return normalizeApprovedProviderBase(metadata.providerBase); } catch { /* fall through */ }
+		try { return normalizeProviderBase(metadata.providerBase); } catch { /* fall through */ }
 	}
 	return environmentProviderBase();
 }
@@ -140,7 +150,7 @@ export async function getLicenseProviderDiagnostics(providerOverride?: string) {
 	} catch (error: any) {
 		database = { ok: false, error: String(error?.message || error || 'Database unavailable') };
 	}
-	const providerBase = providerOverride ? normalizeApprovedProviderBase(providerOverride) : (row ? providerBaseFromRow(row) : environmentBase);
+	const providerBase = providerOverride ? normalizeProviderBase(providerOverride) : (row ? providerBaseFromRow(row) : environmentBase);
 	let provider = { ok: false, status: null as number | null, revision: null as string | null, error: null as string | null };
 	try {
 		const response = await fetch(`${providerBase}/health`, { method: 'GET', signal: AbortSignal.timeout(Number(env.ORBITFS_LICENSE_TIMEOUT_MS || 8000)) });
@@ -159,7 +169,9 @@ export async function getLicenseProviderDiagnostics(providerOverride?: string) {
 		validatePath: DEFAULT_VALIDATE_PATH,
 		validateUrl: `${providerBase}${DEFAULT_VALIDATE_PATH}`,
 		allowedProviderBases: [...ALLOWED_LICENSE_API_BASES],
+		recommendedProviderBases: [...ALLOWED_LICENSE_API_BASES],
 		licenseSystems: LICENSE_SYSTEMS.map((system) => ({ ...system })),
+		configurable: true,
 		database,
 		provider,
 		configSource: row && typeof (row.metadata as any)?.providerBase === 'string' ? 'saved' : (String(env.ORBITFS_LICENSE_API_URL || env.ORBITFS_LICENSE_URL || '').trim() ? 'environment' : 'default')
@@ -171,19 +183,23 @@ export async function getLicenseProviderSettings() {
 	return {
 		providerBase: providerBaseFromRow(row),
 		allowedProviderBases: [...ALLOWED_LICENSE_API_BASES],
-		licenseSystems: LICENSE_SYSTEMS.map((system) => ({ ...system }))
+		recommendedProviderBases: [...ALLOWED_LICENSE_API_BASES],
+		licenseSystems: LICENSE_SYSTEMS.map((system) => ({ ...system })),
+		configurable: true
 	};
 }
 
 export async function setLicenseProviderBase(value: string) {
-	const providerBase = normalizeApprovedProviderBase(value);
+	const providerBase = normalizeProviderBase(value);
 	const row = await getRow();
 	const metadata = { ...(row?.metadata || {}) } as Record<string, any>;
 	await saveRow({ metadata: { ...metadata, providerBase, providerChangedAt: nowIso() } });
 	return {
 		providerBase,
 		allowedProviderBases: [...ALLOWED_LICENSE_API_BASES],
-		licenseSystems: LICENSE_SYSTEMS.map((system) => ({ ...system }))
+		recommendedProviderBases: [...ALLOWED_LICENSE_API_BASES],
+		licenseSystems: LICENSE_SYSTEMS.map((system) => ({ ...system })),
+		configurable: true
 	};
 }
 
