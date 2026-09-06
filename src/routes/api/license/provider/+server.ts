@@ -14,8 +14,7 @@ async function requireProviderAdmin(cookies: any) {
 export async function GET() {
 	try {
 		const settings = await getLicenseProviderSettings();
-		const diagnostics = await getLicenseProviderDiagnostics();
-		return json({ ...settings, diagnostics });
+		return json(settings, { headers: { 'cache-control': 'no-store' } });
 	} catch (error: any) {
 		return json({ error: String(error?.message || 'Could not load licence API settings') }, { status: Number(error?.status || 500) });
 	}

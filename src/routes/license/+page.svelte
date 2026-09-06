@@ -2,6 +2,8 @@
 	import { onMount } from 'svelte';
 	import { KeyRound, LoaderCircle, RefreshCw, ShieldCheck, ExternalLink } from '@lucide/svelte';
 
+	const OFFICIAL_PROVIDER = 'https://orbitfsstore.vercel.app/api/license/v1';
+
 	let summary = $state<any>(null);
 	let provider = $state<{ providerBase: string; allowedProviderBases: string[]; licenseSystems?: { id:string; name:string; description:string; providerBase:string }[] } | null>(null);
 	let providerInput = $state('');
@@ -16,20 +18,31 @@
 	let error = $state('');
 	let message = $state('');
 
+	function componentEntries() { return Object.entries(summary?.components || {}) as [string, any][]; }
+
 	async function loadProvider() {
 		try {
 			const response = await fetch('/api/license/provider', { cache: 'no-store' });
 			const payload = await response.json();
 			if (!response.ok) throw new Error(payload.error || 'Could not load licence API');
 			provider = payload;
-			diagnostics = payload.diagnostics || null;
 			providerInput = payload.providerBase;
+			void loadDiagnostics();
 		} catch (err) {
 			providerError = err instanceof Error ? err.message : 'Could not load licence API';
 			try {
 				const r = await fetch('/api/license/diagnostics', { cache: 'no-store' });
 				diagnostics = await r.json();
 			} catch {}
+		}
+	}
+
+	async function loadDiagnostics() {
+		try {
+			const response = await fetch('/api/license/diagnostics', { cache: 'no-store' });
+			diagnostics = await response.json();
+		} catch {
+			// Diagnostics are optional and must never block licence configuration.
 		}
 	}
 
@@ -42,7 +55,7 @@
 			const payload = await response.json();
 			if (!response.ok) throw new Error(payload.refreshError || payload.error || 'Could not load licence status');
 			summary = payload;
-			await loadProvider();
+			void loadProvider();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not load licence status';
 		} finally {
@@ -53,8 +66,10 @@
 
 	onMount(() => { void load(); });
 
-	async function saveProvider() {
-		if (!provider || !providerInput || providerInput === provider.providerBase) return;
+	async function saveProvider(nextBase = providerInput) {
+		const requestedBase = String(nextBase || '').trim();
+		if (!provider || !requestedBase || requestedBase === provider.providerBase) return;
+		providerInput = requestedBase;
 		providerSaving = true;
 		providerError = '';
 		message = '';
@@ -62,18 +77,23 @@
 			const response = await fetch('/api/license/provider', {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ providerBase: providerInput })
+				body: JSON.stringify({ providerBase: requestedBase })
 			});
 			const payload = await response.json();
 			if (!response.ok) throw new Error(payload.error || 'Could not update licence API');
 			provider = payload;
 			providerInput = payload.providerBase;
-			message = 'Licence API updated. Try activation again.';
+			message = 'Licence API configuration saved.';
 		} catch (err) {
 			providerError = err instanceof Error ? err.message : 'Could not update licence API';
 		} finally {
 			providerSaving = false;
 		}
+	}
+
+	async function resetProvider() {
+		providerInput = OFFICIAL_PROVIDER;
+		await saveProvider(OFFICIAL_PROVIDER);
 	}
 
 	async function testProvider() {
@@ -113,7 +133,7 @@
 					body: JSON.stringify({ providerBase: providerInput })
 				});
 				const savePayload = await saveResponse.json();
-				if (!saveResponse.ok) throw new Error(savePayload.error || 'Could not select licence system');
+				if (!saveResponse.ok) throw new Error(savePayload.error || 'Could not save licence API configuration');
 				provider = savePayload;
 				providerInput = savePayload.providerBase;
 			}
@@ -128,7 +148,7 @@
 			}
 			summary = payload.license;
 			licenseKey = '';
-			message = 'Base System licence activated.';
+			message = 'OrbitFS licence activated.';
 			const setup = await fetch('/api/setup/status', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
 			window.location.assign(setup?.needsSetup ? '/register?setup=1' : '/login');
 		} catch (err) {
@@ -158,7 +178,7 @@
 		{:else}
 			<div class="mt-6 grid gap-3 sm:grid-cols-2">
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Status</p><p class="mt-1 font-medium">{summary?.licensed ? 'Licensed' : 'Blocked'}</p></div>
-				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Component</p><p class="mt-1 font-medium">orbitfs_base</p></div>
+				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Entitlements</p><div class="mt-2 flex flex-wrap gap-1.5">{#each componentEntries() as [componentId, component]}<span class="rounded-md border px-2 py-1 font-mono text-[11px]">{componentId}: {component?.allowed ? component?.state || 'active' : 'blocked'}</span>{/each}</div></div>
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Installation</p><p class="mt-1 break-all font-mono text-xs">{summary?.installationId || 'pending'}</p></div>
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Key</p><p class="mt-1 font-mono text-sm">{summary?.keyHint || 'not activated'}</p></div>
 			</div>
@@ -171,23 +191,33 @@
 				<div class="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<label class="block text-sm font-medium" for="license-api">Licence system</label>
-						<p class="mt-1 text-xs text-muted-foreground">Choose the approved OrbitFS licensing service this installation will use. The selection can be tested before activation and arbitrary external licensing servers are blocked.</p>
+						<p class="mt-1 text-xs text-muted-foreground">Configure the public HTTPS OrbitFS-compatible licensing API this installation will use. Local and private network targets are blocked; test the endpoint before activation.</p>
 					</div>
 					<button class="inline-flex h-9 items-center gap-2 rounded-md border px-3 text-xs font-medium hover:bg-muted disabled:opacity-50" type="button" onclick={testProvider} disabled={providerTesting}>{#if providerTesting}<LoaderCircle class="size-3.5 animate-spin" />{:else}<RefreshCw class="size-3.5" />{/if} Test API</button>
 				</div>
 				{#if provider}
-					<div class="mt-3 flex flex-col gap-2 sm:flex-row">
-						<select id="license-api" class="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm" bind:value={providerInput}>
-							{#if provider.licenseSystems?.length}
-								{#each provider.licenseSystems as system}<option value={system.providerBase}>{system.name} — {system.providerBase}</option>{/each}
-							{:else}
-								{#each provider.allowedProviderBases as url}<option value={url}>{url}</option>{/each}
-							{/if}
-						</select>
-						<button class="inline-flex h-10 items-center justify-center gap-2 rounded-md border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50" type="button" onclick={saveProvider} disabled={providerSaving || providerInput === provider.providerBase}>{#if providerSaving}<LoaderCircle class="size-4 animate-spin" />{/if} Use this system</button>
+					<div class="mt-3 space-y-3">
+						<div>
+							<label class="mb-1.5 block text-xs font-medium text-muted-foreground" for="license-api">API base URL</label>
+							<input id="license-api" class="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm" bind:value={providerInput} autocomplete="url" spellcheck="false" placeholder={OFFICIAL_PROVIDER} />
+							<p class="mt-1.5 text-xs text-muted-foreground">OrbitFS v1 contract: <code>/health</code>, <code>/activate</code>, <code>/validate</code> and <code>/public-key</code>.</p>
+						</div>
+						<div class="flex flex-wrap gap-2">
+							<button class="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground disabled:opacity-50" type="button" onclick={() => saveProvider()} disabled={providerSaving || !providerInput.trim() || providerInput.trim() === provider.providerBase}>{#if providerSaving}<LoaderCircle class="size-4 animate-spin" />{/if} Save configuration</button>
+							<button class="inline-flex h-10 items-center justify-center rounded-md border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50" type="button" onclick={resetProvider} disabled={providerSaving || providerInput.trim() === OFFICIAL_PROVIDER}>Restore OrbitFS default</button>
+						</div>
+						{#if providerInput.trim()}
+							<div class="grid gap-2 sm:grid-cols-2">
+								<div class="rounded-md border p-3"><p class="text-[11px] uppercase tracking-wide text-muted-foreground">Activation</p><p class="mt-1 break-all font-mono text-xs">{providerInput.replace(/\/$/, '')}/activate</p></div>
+								<div class="rounded-md border p-3"><p class="text-[11px] uppercase tracking-wide text-muted-foreground">Validation</p><p class="mt-1 break-all font-mono text-xs">{providerInput.replace(/\/$/, '')}/validate</p></div>
+							</div>
+						{/if}
 					</div>
 				{:else}
-					<p class="mt-3 rounded-md border p-3 font-mono text-xs text-muted-foreground">Provider settings could not be loaded. Use Test API for diagnostics.</p>
+					<div class="mt-3 space-y-2">
+						<input id="license-api" class="h-10 w-full rounded-md border border-input bg-background px-3 font-mono text-sm" bind:value={providerInput} autocomplete="url" spellcheck="false" placeholder={OFFICIAL_PROVIDER} />
+						<p class="text-xs text-muted-foreground">Provider settings could not be loaded. Enter a public HTTPS API and use Test API for diagnostics.</p>
+					</div>
 				{/if}
 				{#if diagnostics}
 					<div class="mt-4 grid gap-2 sm:grid-cols-2">
