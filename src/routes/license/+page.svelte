@@ -44,7 +44,7 @@
 			const payload = await response.json();
 			if (!response.ok) throw new Error(payload.refreshError || payload.error || 'Could not load licence status');
 			summary = payload;
-			await loadProvider();
+			void loadProvider();
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Could not load licence status';
 		} finally {

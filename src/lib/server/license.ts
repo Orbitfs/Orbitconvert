@@ -75,6 +75,7 @@ const cachedProviderPublicKeys = new Map<string, string>();
 async function entitlementPublicKey(providerBase: string) {
 	const configured = String(env.ORBITFS_ENTITLEMENT_PUBLIC_KEY || '').replace(/\\n/g, '\n').trim();
 	if (configured) return configured;
+	if (providerBase === DEFAULT_PROVIDER) return PUBLIC_KEY;
 	const cached = cachedProviderPublicKeys.get(providerBase);
 	if (cached) return cached;
 	try {
@@ -349,8 +350,7 @@ export async function getPanelLicenseSummary(options: { refresh?: boolean } = {}
 	if (!options.refresh && cachedToken && lastCheckedAt && Date.now() - lastCheckedAt < refreshMs()) {
 		try {
 			const cached = await verifyEntitlement(cachedToken, installationId, providerBaseFromRow(row), false);
-			if (!(await revisionChanged(row!))) return summaryFromPayload(cached, await getRow());
-			row = await getRow();
+			return summaryFromPayload(cached, row);
 		} catch { /* refresh below */ }
 	}
 	try {
