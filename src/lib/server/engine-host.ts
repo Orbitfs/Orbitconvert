@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '$lib/server/supabase';
 import { ensureInstallationIdentity } from '$lib/server/license';
 
 export const ENGINE_HOST_URL = 'https://orbitfsengine.vercel.app';
+export const ENGINE_HOST_PREVIEW_URL = 'https://orbitfsengine-git-engine-hub-v2-lucaskerim123s-projects.vercel.app';
 export const PANEL_URL = 'https://orbitfs.vercel.app';
 
 export type EngineMode = 'running' | 'standby' | 'stopped';
@@ -45,7 +46,11 @@ function cleanBaseUrl(value: string, fallback: string) {
 }
 
 export function engineHostBaseUrl() {
-	return cleanBaseUrl(String(env.ORBITFS_ENGINE_HOST_URL || ''), ENGINE_HOST_URL);
+	const preview = String(env.VERCEL_ENV || '').toLowerCase() === 'preview';
+	const fallback = preview
+		? String(env.ORBITFS_ENGINE_HOST_PREVIEW_URL || ENGINE_HOST_PREVIEW_URL)
+		: ENGINE_HOST_URL;
+	return cleanBaseUrl(String(env.ORBITFS_ENGINE_HOST_URL || ''), fallback);
 }
 
 export function panelBaseUrl() {
