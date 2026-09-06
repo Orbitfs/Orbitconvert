@@ -1,8 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getSupabaseAdmin } from '$lib/server/supabase';
 
-export const MCP_RESOURCE = 'https://orbitconvert-mcp-addon.vercel.app/mcp';
-export const OAUTH_ISSUER = 'https://orbitconvert.vercel.app';
+export const MCP_RESOURCE = 'https://orbitfsengine.vercel.app/mcp';
+export const OAUTH_ISSUER = 'https://orbitfs.vercel.app';
 export const OAUTH_SCOPES = ['orbitfs:read', 'orbitfs:write', 'offline_access'] as const;
 const ACCESS_TTL_MS = 60 * 60 * 1000;
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
