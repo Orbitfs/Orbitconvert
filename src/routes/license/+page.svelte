@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { KeyRound, LoaderCircle, RefreshCw, ShieldCheck, ExternalLink } from '@lucide/svelte';
 
-	const OFFICIAL_PROVIDER = 'https://orbitfs.vercel.app/api/license/v1';
+	const OFFICIAL_PROVIDER = 'https://orbitfsstore.vercel.app/api/license/v1';
 
 	let summary = $state<any>(null);
 	let provider = $state<{ providerBase: string; allowedProviderBases: string[]; licenseSystems?: { id:string; name:string; description:string; providerBase:string }[] } | null>(null);
@@ -17,6 +17,8 @@
 	let activating = $state(false);
 	let error = $state('');
 	let message = $state('');
+
+	function componentEntries() { return Object.entries(summary?.components || {}) as [string, any][]; }
 
 	async function loadProvider() {
 		try {
@@ -146,7 +148,7 @@
 			}
 			summary = payload.license;
 			licenseKey = '';
-			message = 'Base System licence activated.';
+			message = 'OrbitFS licence activated.';
 			const setup = await fetch('/api/setup/status', { cache: 'no-store' }).then((r) => r.json()).catch(() => null);
 			window.location.assign(setup?.needsSetup ? '/register?setup=1' : '/login');
 		} catch (err) {
@@ -176,7 +178,7 @@
 		{:else}
 			<div class="mt-6 grid gap-3 sm:grid-cols-2">
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Status</p><p class="mt-1 font-medium">{summary?.licensed ? 'Licensed' : 'Blocked'}</p></div>
-				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Component</p><p class="mt-1 font-medium">orbitfs_base</p></div>
+				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Entitlements</p><div class="mt-2 flex flex-wrap gap-1.5">{#each componentEntries() as [componentId, component]}<span class="rounded-md border px-2 py-1 font-mono text-[11px]">{componentId}: {component?.allowed ? component?.state || 'active' : 'blocked'}</span>{/each}</div></div>
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Installation</p><p class="mt-1 break-all font-mono text-xs">{summary?.installationId || 'pending'}</p></div>
 				<div class="rounded-xl border bg-background/60 p-4"><p class="text-xs uppercase tracking-wide text-muted-foreground">Key</p><p class="mt-1 font-mono text-sm">{summary?.keyHint || 'not activated'}</p></div>
 			</div>
