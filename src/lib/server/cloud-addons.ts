@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from '$lib/server/supabase';
 import { getPanelLicenseSummary, activateLicenseComponent } from '$lib/server/license';
-import { ENGINE_HOST_URL } from '$lib/server/engine-host';
+import { ENGINE_HOST_URL, engineHostBaseUrl } from '$lib/server/engine-host';
 
 export const CLOUD_ADDON_MANIFESTS: Record<string, any> = {
 	mcp: {
@@ -117,8 +117,9 @@ export async function presentAddon(row: any) {
 	const attached = installed && row.attached === true && licensed;
 	const setupState = explicitSetupState(row);
 	const setupComplete = setupState === 'complete';
-	const base = String(manifest.deploymentUrl || row.deployment_url || '').replace(/\/$/,'');
 	const engineHosted = manifest.runtimeMode === 'engine-host';
+	const runtimeHost = engineHosted ? engineHostBaseUrl() : '';
+	const base = engineHosted ? runtimeHost : String(manifest.deploymentUrl || row.deployment_url || '').replace(/\/$/,'');
 	const link = (href: string) => engineHosted ? href : (base && href?.startsWith('/') ? base + href : href);
 	const frontend = manifest.frontend ? { ...manifest.frontend, navigationGroups:(manifest.frontend.navigationGroups||[]).map((group:any)=>({...group,items:(group.items||[]).map((item:any)=>({...item,href:link(item.href)}))})), adminGroups:(manifest.frontend.adminGroups||[]).map((group:any)=>({...group,items:(group.items||[]).map((item:any)=>({...item,href:link(item.href)}))})), primaryNavigation:(manifest.frontend.primaryNavigation||[]).map((item:any)=>({...item,href:link(item.href)})), routes:[] } : null;
 	return {
@@ -130,8 +131,9 @@ export async function presentAddon(row: any) {
 		installMethod:'cloud',supports:['install','test','attach','detach','uninstall'],
 		deploymentUrl:base || null,transportPath:row.transport_path ?? manifest.transportPath ?? null,sourceRef:row.source_ref || manifest.sourceRef || null,
 		online:Boolean(row.runtime?.online),manifest,frontend,runtime:row.runtime || {},config:row.config || {},
-		engineHostUrl: engineHosted ? ENGINE_HOST_URL : null,
-		engineManageUrl: engineHosted ? `${ENGINE_HOST_URL}/engines/${row.id}` : null,
+		engineHostUrl: engineHosted ? runtimeHost : null,
+		engineManageUrl: engineHosted ? `${runtimeHost}/engines/${row.id}` : null,
+		canonicalEngineHostUrl: engineHosted ? ENGINE_HOST_URL : null,
 		wiring:{ package:false,panel:true,backend:installed,frontend:false,engine:installed,service:false }
 	};
 }
