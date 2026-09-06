@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { getSupabaseAdmin } from '$lib/server/supabase';
 import { getPanelLicenseSummary } from '$lib/server/license';
 import { STORAGE_BUCKET } from '$lib/server/base-compat';
+import { engineHostBaseUrl } from '$lib/server/engine-host';
 
 async function setupModel(origin = '') {
 	const supabase = getSupabaseAdmin();
@@ -12,6 +13,7 @@ async function setupModel(origin = '') {
 	if (error) throw error;
 	const complete = (count ?? 0) > 0;
 	const storageReady = !bucket.error && Boolean(bucket.data);
+	const engineHostUrl = engineHostBaseUrl();
 	return {
 		setupComplete: complete,
 		needsSetup: !complete,
@@ -25,7 +27,9 @@ async function setupModel(origin = '') {
 			storageRoot: `Supabase Storage / ${STORAGE_BUCKET}`,
 			workspaceRoot: 'Supabase orbitfs_workspaces + orbitfs_files',
 			systemRoot: 'Supabase orbitfs_* tables',
-			licenseApiUrl: 'https://license.incendiarynetworks.cc'
+			engineHostUrl,
+			mcpEndpoint: `${engineHostUrl}/mcp`,
+			licenseApiUrl: 'https://orbitfs.vercel.app/api/license/v1'
 		},
 		steps: {
 			step1: { complete: true, configured: true, title: 'Vercel runtime', description: 'SvelteKit Panel and API are deployed on Vercel.' },
@@ -34,9 +38,11 @@ async function setupModel(origin = '') {
 		},
 		addons: [],
 		notes: [
-			'This is the Vercel/Supabase OrbitFS Panel.',
-			'Workspace paths are virtual library paths backed by Supabase, not folders on a persistent server drive.',
-			'Add-ons are managed separately from the Base Panel conversion.'
+			'OrbitFS Panel is the main control plane.',
+			'Workspace files and Library paths are virtual records backed by Supabase, not folders on a persistent server drive.',
+			'MCP, APEX and Studio engines are managed by the OrbitFS Engine Host after they are installed and attached from Panel.',
+			`Engine Host: ${engineHostUrl}`,
+			`MCP endpoint: ${engineHostUrl}/mcp`
 		]
 	};
 }
