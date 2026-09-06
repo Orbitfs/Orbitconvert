@@ -17,13 +17,17 @@ export async function GET({ cookies }) {
 	try {
 		const user = await requireUser(cookies);
 		await assertPanelLicensed();
-		const workspaces = await visibleWorkspaces(user);
-		const cloudAddons = await listCloudAddons().catch(() => []);
+		const [workspaces, cloudAddons, settings, userPermissions] = await Promise.all([
+			visibleWorkspaces(user),
+			listCloudAddons().catch(() => []),
+			readWorkspaceSettings(),
+			effectiveUserPermissions(user)
+		]);
 		const mcpAddon = cloudAddons.find((addon:any) => addon.id === 'mcp');
 		const currentManagementActions = MANAGEMENT_ACTIONS.filter((id)=>!id.startsWith('sorter_')&&!id.startsWith('converter_'));
 		return json({
-			workspaces, settings:await readWorkspaceSettings(), canManageGlobal:isSystemAdmin(user),
-			userPermissions:await effectiveUserPermissions(user), roles:['owner','editor','contributor','viewer'],
+			workspaces, settings, canManageGlobal:isSystemAdmin(user),
+			userPermissions, roles:['owner','editor','contributor','viewer'],
 			fileActions:[...FILE_ACTIONS], managementActions:[...currentManagementActions], managementLabels:MANAGEMENT_LABELS,
 			managementCatalog:{ groups:[
 				{id:'base',label:'Workspace permissions',addonId:'base',attached:true,permissions:currentManagementActions.filter((id)=>!id.startsWith('mcp_')&&!id.startsWith('manage_mcp_')&&!id.startsWith('studio_'))},
@@ -31,7 +35,7 @@ export async function GET({ cookies }) {
 				{id:'studio',label:'Studio',addonId:'studio',attached:true,permissions:currentManagementActions.filter((id)=>id.startsWith('studio_'))}
 			],labels:MANAGEMENT_LABELS,count:currentManagementActions.length}, currentUser:{id:user.id,username:user.username,role:user.role},
 			ownedCount:workspaces.filter((ws:any) => ws.permission === 'owner' && !ws.is_main).length
-		});
+		}, { headers:{ 'cache-control':'private, no-store' } });
 	} catch (error) { return fail(error); }
 }
 export async function POST({ request, cookies }) {
