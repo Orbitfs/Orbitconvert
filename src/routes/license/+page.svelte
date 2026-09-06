@@ -24,14 +24,23 @@
 			const payload = await response.json();
 			if (!response.ok) throw new Error(payload.error || 'Could not load licence API');
 			provider = payload;
-			diagnostics = payload.diagnostics || null;
 			providerInput = payload.providerBase;
+			void loadDiagnostics();
 		} catch (err) {
 			providerError = err instanceof Error ? err.message : 'Could not load licence API';
 			try {
 				const r = await fetch('/api/license/diagnostics', { cache: 'no-store' });
 				diagnostics = await r.json();
 			} catch {}
+		}
+	}
+
+	async function loadDiagnostics() {
+		try {
+			const response = await fetch('/api/license/diagnostics', { cache: 'no-store' });
+			diagnostics = await response.json();
+		} catch {
+			// Diagnostics are optional and must never block licence configuration.
 		}
 	}
 
