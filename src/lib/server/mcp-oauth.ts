@@ -65,6 +65,27 @@ export async function issueAuthorizationCode(input: {
 	return code;
 }
 
+async function resolveClientWorkspaceIds(db: any, userId: string) {
+	const [userResult, workspaceResult, membershipResult] = await Promise.all([
+		db.from('orbitfs_users').select('role').eq('id', userId).maybeSingle(),
+		db.from('orbitfs_workspaces').select('id,owner_id,created_by,status,mcp_system_enabled').neq('status', 'archived'),
+		db.from('orbitfs_workspace_members').select('workspace_id,mcp_enabled').eq('user_id', userId)
+	]);
+	if (userResult.error) throw userResult.error;
+	if (workspaceResult.error) throw workspaceResult.error;
+	if (membershipResult.error) throw membershipResult.error;
+	const systemRole = String(userResult.data?.role || 'user').toLowerCase();
+	const memberships = new Map((membershipResult.data || []).map((row: any) => [String(row.workspace_id), row]));
+	return (workspaceResult.data || []).filter((workspace: any) => {
+		if (workspace.mcp_system_enabled === false) return false;
+		const membership: any = memberships.get(String(workspace.id));
+		if (membership?.mcp_enabled === false) return false;
+		if (membership?.mcp_enabled === true) return true;
+		if (String(workspace.owner_id || workspace.created_by || '') === userId) return true;
+		return systemRole === 'owner' || systemRole === 'admin';
+	}).map((workspace: any) => String(workspace.id));
+}
+
 async function storeTokens(clientId: string, userId: string, scope: string, resource: string) {
 	const accessToken = randomToken(32), refreshToken = randomToken(40), db = getSupabaseAdmin();
 	const expiresAt = new Date(Date.now() + ACCESS_TTL_MS).toISOString();
@@ -74,7 +95,9 @@ async function storeTokens(clientId: string, userId: string, scope: string, reso
 		user_id: userId, scope, resource, expires_at: expiresAt, refresh_expires_at: refreshExpiresAt
 	});
 	if (error) throw error;
-	await db.from('mcp_clients').update({user_id:userId,status:'active',last_seen_at:new Date().toISOString()}).eq('id',clientId);
+	const workspaceIds = await resolveClientWorkspaceIds(db, userId);
+	const clientUpdate = await db.from('mcp_clients').update({ user_id:userId, status:'active', workspace_ids:workspaceIds, last_seen_at:new Date().toISOString() }).eq('id',clientId);
+	if (clientUpdate.error) throw clientUpdate.error;
 	return { access_token: accessToken, token_type: 'Bearer', expires_in: Math.floor(ACCESS_TTL_MS / 1000), refresh_token: refreshToken, scope };
 }
 
