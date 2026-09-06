@@ -19,8 +19,8 @@ export function getPanelAddonManifest(id: string) {
 export async function dispatchPanelAddonHttp(id: string, _request: Request): Promise<Response> {
 	if (id === 'mcp') {
 		return new Response(JSON.stringify({
-			error: 'MCP resource server moved to standalone Vercel service',
-			resource: 'https://orbitconvert-mcp-addon.vercel.app/mcp'
+			error: 'MCP resource server is hosted by OrbitFS Engine Host',
+			resource: 'https://orbitfsengine.vercel.app/mcp'
 		}), {
 			status: 410,
 			headers: { 'content-type': 'application/json' }
